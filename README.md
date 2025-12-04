@@ -1,188 +1,235 @@
-# Twilio Chatbot: Outbound
 
-This project is a Pipecat-based chatbot that integrates with Twilio to make outbound calls with personalized call information. The project includes FastAPI endpoints for initiating outbound calls and handling WebSocket connections with call context.
+# Restaurant Booking Voice AI Agent
 
-## How It Works
+A production-ready voice AI agent built with Pipecat for handling restaurant reservations over phone calls. The agent can check table availability, create bookings, and provide restaurant information through natural conversation.
 
-When you want to make an outbound call:
+## Features
 
-1. **Send POST request**: `POST /dialout` with a phone number to call
-2. **Server initiates call**: Uses Twilio's REST API to make the outbound call
-3. **Call answered**: When answered, Twilio fetches TwiML from your server's `/twiml` endpoint
-4. **Server returns TwiML**: Tells Twilio to start a WebSocket stream to your bot
-5. **WebSocket connection**: Audio streams between the called person and your bot
-6. **Call information**: Phone numbers are passed via TwiML Parameters to your bot
+- **Intelligent Booking Management**: Collects customer details (name, phone, party size, date, time)
+- **Real-time Availability Checking**: Validates table availability before confirming reservations
+- **Restaurant Information**: Answers questions about hours, menu, location, and capacity
+- **Function Calling**: Uses LLM function calling to interact with booking database
+- **Natural Conversations**: Powered by Google Gemini for human-like interactions
+- **High-Quality Voice**: Cartesia TTS for natural-sounding speech
+- **Accurate Transcription**: Soniox STT for reliable speech recognition
 
 ## Architecture
 
+The agent uses a cascaded pipeline approach:
+
 ```
-curl request → /dialout endpoint → Twilio REST API → Call initiated →
-TwiML fetched → WebSocket connection → Bot conversation
+Phone Call → Twilio → WebSocket → STT → Context → LLM → TTS → Audio Output
+                                           ↓
+                                    Function Calls
+                                    (Availability, Booking, Info)
 ```
 
 ## Prerequisites
 
-### Twilio
+### Required Services
 
-- A Twilio account with:
-  - Account SID and Auth Token
-  - A purchased phone number that supports voice calls
+1. **Twilio Account**
+   - Account SID and Auth Token
+   - Phone number with voice capabilities
+   - Enable international calling if needed
 
-### AI Services
+2. **AI Service API Keys**
+   - Google API key (for Gemini LLM)
+   - Soniox API key (for speech-to-text)
+   - Cartesia API key (for text-to-speech)
 
-- Google API key for the LLM inference
-- Deepgram API key for speech-to-text
-- Cartesia API key for text-to-speech
+3. **Development Tools**
+   - Python 3.10+
+   - `uv` package manager
+   - ngrok (for local development)
 
-### System
+## Installation
 
-- Python 3.10+
-- `uv` package manager
-- ngrok (for local development)
-- Docker (for production deployment)
+1. Clone the repository and navigate to the project directory:
 
-## Setup
 
-1. Set up a virtual environment and install dependencies:
+2. Install dependencies using uv:
 
 ```bash
-cd outbound
 uv sync
 ```
-
-2. Get your Twilio credentials:
-
-- **Account SID & Auth Token**: Found in your [Twilio Console Dashboard](https://console.twilio.com/)
-- **Phone Number**: [Purchase a phone number](https://console.twilio.com/us1/develop/phone-numbers/manage/search) that supports voice calls
 
 3. Set up environment variables:
 
 ```bash
 cp env.example .env
-# Edit .env with your API keys
 ```
 
-## Environment Configuration
+Edit `.env` with your credentials:
 
-The bot supports two deployment modes controlled by the `ENV` variable:
+```bash
+# Twilio Configuration
+TWILIO_ACCOUNT_SID=your_account_sid
+TWILIO_AUTH_TOKEN=your_auth_token
+LOCAL_SERVER_URL=https://your-ngrok-url.ngrok.io
 
-### Local Development (`ENV=local`)
-
-- Uses your local server or ngrok URL for WebSocket connections
-- Default configuration for development and testing
-- WebSocket connections go directly to your running server
-
-### Production (`ENV=production`)
-
-- Uses Pipecat Cloud WebSocket URLs automatically
-- Requires `AGENT_NAME` and `ORGANIZATION_NAME` from your Pipecat Cloud deployment
-- Set these when deploying to production environments
-- WebSocket connections route through Pipecat Cloud infrastructure
+# AI Service Keys
+GOOGLE_API_KEY=your_google_api_key
+SONIOX_API_KEY=your_soniox_api_key
+CARTESIA_API_KEY=your_cartesia_api_key
+```
 
 ## Local Development
 
-1. Start the outbound bot server:
+### 1. Start the Server
 
-   ```bash
-   uv run server.py
-   ```
+```bash
+uv run server.py
+```
 
 The server will start on port 7860.
 
-2. Using a new terminal, expose your server to the internet (for development)
+### 2. Expose with ngrok
 
-   ```bash
-   ngrok http 7860
-   ```
+In a new terminal:
 
-   > Tip: Use the `--subdomain` flag for a reusable ngrok URL.
+```bash
+ngrok http 7860
+```
 
-   Copy the ngrok URL (e.g., `https://abc123.ngrok.io`) and update `LOCAL_SERVER_URL` in your `.env` file.
+Copy the ngrok URL (e.g., `https://abc123.ngrok.io`) and update `LOCAL_SERVER_URL` in your `.env` file.
 
-3. No additional Twilio configuration needed
+### 3. Make a Test Call
 
-   Unlike inbound calling, outbound calls don't require webhook configuration in the Twilio console. The server will make direct API calls to Twilio to initiate calls.
-
-## Making an Outbound Call
-
-With the server running and exposed via ngrok, you can initiate outbound calls:
+Use curl or Postman to initiate an outbound call:
 
 ```bash
 curl -X POST https://your-ngrok-url.ngrok.io/dialout \
   -H "Content-Type: application/json" \
   -d '{
-    "to_number": "+15551234567",
-    "from_number": "+15559876543"
+    "to_number": "+1234567890",
+    "from_number": "+your_twilio_number"
   }'
 ```
 
-Replace:
+**Important Notes:**
+- `from_number` must be a Twilio number you own
+- `to_number` must be in E.164 format (+country_code + number)
+- Enable international calling in Twilio Console if calling outside US/Canada
 
-- `your-ngrok-url.ngrok.io` with your actual ngrok URL
-- `+15551234567` with the phone number to call (E.164 format)
-- `+15559876543` with your Twilio phone number (E.164 format)
+## How It Works
 
-> Note: the `from_number` must be a phone number owned by your Twilio account
+### Call Flow
 
-## Production Deployment
+1. **Initiation**: POST request to `/dialout` triggers Twilio API call
+2. **TwiML Generation**: Twilio requests TwiML from `/twiml` endpoint
+3. **WebSocket Connection**: TwiML instructs Twilio to connect to `/ws` endpoint
+4. **Conversation**: Bot waits for user to speak first, then responds naturally
+5. **Function Execution**: Bot calls functions to check availability and create bookings
 
-### 1. Deploy your Bot to Pipecat Cloud
+### Available Functions
 
-Follow the [quickstart instructions](https://docs.pipecat.ai/getting-started/quickstart#step-2%3A-deploy-to-production) to deploy your bot to Pipecat Cloud.
+#### 1. Check Availability
+Validates table availability for requested date/time/party size.
 
-### 2. Configure Production Environment
-
-Update your production `.env` file with the Pipecat Cloud details:
-
-```bash
-# Set to production mode
-ENV=production
-
-# Your Pipecat Cloud deployment details
-AGENT_NAME=your-agent-name
-ORGANIZATION_NAME=your-org-name
-
-# Keep your existing Twilio and AI service keys
+```python
+check_availability(date, time, guests)
 ```
 
-### 3. Deploy the Server
+#### 2. Create Booking
+Creates a new reservation after availability is confirmed.
 
-The `server.py` handles outbound call initiation and should be deployed separately from your bot:
+```python
+create_booking(name, phone, date, time, guests, special_requests)
+```
 
-- **Bot**: Runs on Pipecat Cloud (handles the conversation)
-- **Server**: Runs on your infrastructure (initiates calls, serves TwiML responses)
+#### 3. Get Restaurant Info
+Provides information about hours, menu, location, or capacity.
 
-When `ENV=production`, the server automatically routes WebSocket connections to your Pipecat Cloud bot.
+```python
+get_restaurant_info(info_type)
+```
 
-> Alternatively, you can test your Pipecat Cloud deployment by running your server locally.
+### Restaurant Configuration
 
-### Call your Bot
+Current settings (modify in `bot.py`):
 
-As you did before, initiate a call via `curl` command to trigger your bot to dial a number.
+- **Hours**: Tuesday-Sunday, 11 AM - 10 PM (Closed Mondays)
+- **Lunch**: 11 AM - 3 PM
+- **Dinner**: 5 PM - 10 PM
+- **Max Party Size**: 12 guests
+- **Dietary Options**: Vegetarian, vegan, gluten-free
 
-## Accessing Call Information in Your Bot
+## Customization
 
-Your bot automatically receives call information through Twilio Stream Parameters. In this example, the phone numbers (`to_number` and `from_number`) are passed as parameters and extracted by the `parse_telephony_websocket` function.
+### Modify Restaurant Details
 
-You can extend the `DialoutRequest` model in `server_utils.py` to include additional custom data (customer info, campaign data, etc.) and pass it through as stream parameters for personalized conversations. See `bot.py` for implementation details.
+Edit the system prompt in `bot.py`:
+
+```python
+messages = [
+    {
+        "role": "system",
+        "content": (
+            "You are a friendly restaurant booking assistant for 'Your Restaurant Name'. "
+            # ... customize instructions ...
+        ),
+    },
+]
+```
 
 
 
+### Customize Voice
+
+Change the Cartesia voice in `bot.py`:
+
+```python
+tts = CartesiaTTSService(
+    api_key=os.getenv("CARTESIA_API_KEY"),
+    voice_id="your-preferred-voice-id",  # Browse voices at cartesia.ai
+)
+```
 
 
 
-<!-- curl -X POST https://congestive-metabiotically-niki.ngrok-free.dev/dialout \
-  -H "Content-Type: application/json" \
-  -d '{
-    "to_number": "+923117499750", 
-    "from_number": "+12058391730" 
-  }' -->
+## Troubleshooting
+
+### Call Connects But No Audio
+- Check that ngrok URL is correctly set in `.env`
+- Verify Twilio credentials are correct
+- Ensure all API keys are valid
+
+### Bot Doesn't Respond
+- Confirm user speaks first (bot waits for "Hello")
+- Check logs for API errors
+- Verify LLM and TTS services are working
+
+### International Calls Fail
+- Enable geo permissions in Twilio Console
+- Check account balance for international calling
+- Verify phone number format (E.164)
+
+### Function Calls Not Working
+- Check function registration in `bot.py`
+- Verify function schemas match LLM expectations
+- Review logs for function execution errors
+
+## Project Structure
+
+```
+outbound/
+├── bot.py              # Main bot logic with functions
+├── server.py           # FastAPI server and endpoints
+├── server_utils.py     # Twilio integration utilities
+├── .env               # Environment variables (create from .env.example)
+└── README.md          # This file
+```
 
 
-<!-- 
-curl -X POST https://your-ngrok-url.ngrok.io/dialout \
-  -H "Content-Type: application/json" \
-  -d '{
-    "to_number": "+15551234567",
-    "from_number": "+15559876543"
-  }' -->
+
+## Support
+
+For issues or questions:
+- Check Pipecat documentation: https://docs.pipecat.ai
+- Review Twilio docs: https://www.twilio.com/docs
+- Open an issue in the repository
+
+---
+
+Built with [Pipecat](https://pipecat.ai) - The open-source framework for voice AI agents.
